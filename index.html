@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Voice-Controlled MOB Game</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+</head>
+<body>
+  <script>
+    let mob;
+    let obstacles = [];
+    let audioContext;
+    let analyser;
+    let microphone;
+    let frequencyData;
+    let gameState = 'start';
+    
+    function setup() {
+      createCanvas(800, 600);
+      mob = new Mob(width / 2, height / 2);
+      obstacles.push(new Obstacle(300, 100, 'narrow')); // 細い道
+      obstacles.push(new Obstacle(500, 400, 'low'));   // 低い道
+      initAudio();
+    }
+    
+    async function initAudio() {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        microphone = audioContext.createMediaStreamSource(stream);
+        microphone.connect(analyser);
+        frequencyData = new Uint8Array(analyser.frequencyBinCount);
+      } catch (err) {
+        console.error('マイクのアクセスに失敗しました:', err);
+        alert('マイクのアクセスを許可してください。');
+      }
+    }
+    
+    function draw() {
+      background(220);
+      
+      if (gameState === 'start') {
+        textAlign(CENTER);
+        textSize(32);
+        text('マイクを許可してスペースキーを押して開始', width / 2, height / 2);
+        if (keyIsPressed && key === ' ') {
+          gameState = 'playing';
+        }
+        return;
+      }
+      
+      if (gameState === 'gameover') {
+        textAlign(CENTER);
+        textSize(32);
+        text('ゲームオーバー！スペースキーでリスタート', width / 2, height / 2);
+        if (keyIsPressed && key === ' ') {
+          mob = new Mob(width / 2, height / 2);
+          gameState = 'playing';
+        }
+        return;
+      }
+      
+      // 音声解析
+      if (analyser) {
+        analyser.getByteFrequencyData(frequencyData);
+        let maxFreq = getDominantFrequency();
+        if (maxFreq > 500) {
+          mob.setShape('narrow'); // 高音で細く
+        } else if (maxFreq < 200 && maxFreq > 0) {
+          mob.setShape('low');    // 低音で低く
+        } else {
+          mob.setShape('normal'); // 通常
+        }
+      }
+      
+      // プレイヤーの移動
+      mob.update();
+      mob.show();
+      
+      // 障害物の描画と衝突判定
+      for (let obs of obstacles) {
+        obs.show();
+        if (mob.collidesWith(obs)) {
+          gameState = 'gameover';
+        }
+      }
+    }
+    
+    function getDominantFrequency() {
+      let maxAmp = 0;
+      let maxIndex = 0;
+      for (let i = 0; i < frequencyData.length; i++) {
+        if (frequencyData[i] > maxAmp) {
+          maxAmp = frequencyData[i];
+          maxIndex = i;
+        }
+      }
+      // 周波数の計算（サンプルレートを基に）
+      let sampleRate = audioContext.sampleRate;
+      let frequency = maxIndex * sampleRate / analyser.fftSize;
+      return frequency;
+    }
+    
+    class Mob {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.width = 40;
+        this.height = 40;
+        this.speed = 5;
+        this.shape = 'normal';
+      }
+      
+      setShape(shape) {
+        this.shape = shape;
+        if (shape === 'narrow') {
+          this.width = 20;
+          this.height = 60;
+        } else if (shape === 'low') {
+          this.width = 60;
+          this.height = 20;
+        } else {
+          this.width = 40;
+          this.height = 40;
+        }
+      }
+      
+      update() {
+        if (keyIsDown(LEFT_ARROW)) this.x -= this.speed;
+        if (keyIsDown(RIGHT_ARROW)) this.x += this.speed;
+        if (keyIsDown(UP_ARROW)) this.y -= this.speed;
+        if (keyIsDown(DOWN_ARROW)) this.y += this.speed;
+        this.x = constrain(this.x, 0, width - this.width);
+        this.y = constrain(this.y, 0, height - this.height);
+      }
+      
+      show() {
+        fill(0, 255, 0);
+        rect(this.x, this.y, this.width, this.height);
+      }
+      
+      collidesWith(obstacle) {
+        if (obstacle.type === 'narrow') {
+          return this.x + this.width > obstacle.x && this.x < obstacle.x + 20 &&
+                 this.y + this.height > obstacle.y && this.y < obstacle.y + 100 &&
+                 this.shape !== 'narrow';
+        } else {
+          return this.x + this.width > obstacle.x && this.x < obstacle.x + 100 &&
+                 this.y + this.height > obstacle.y && this.y < obstacle.y + 20 &&
+                 this.shape !== 'low';
+        }
+      }
+    }
+    
+    class Obstacle {
+      constructor(x, y, type) {
+        this.x = x;
+        this.y = y;
+        this.type = type;
+      }
+      
+      show() {
+        fill(255, 0, 0);
+        if (this.type === 'narrow') {
+          rect(this.x, this.y, 20, 100); // 細い道
+        } else {
+          rect(this.x, this.y, 100, 20); // 低い道
+        }
+      }
+    }
+  </script>
+</body>
+</html>
