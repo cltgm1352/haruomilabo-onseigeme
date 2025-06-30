@@ -3,73 +3,100 @@
 <head>
   <meta charset="UTF-8">
   <title>3D Voice-Controlled Shiba Inu Game</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <!-- Three.js CDN (r167). 読み込み失敗時は以下を試してください: -->
+  <!-- <script src="https://unpkg.com/three@0.167.0/build/three.min.js"></script> -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r167/three.min.js"></script>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
-    #info { position: absolute; top: 10px; left: 10px; color: white; font-family: Arial; }
+    #info { position: absolute; top: 10px; left: 10px; color: white; font-family: Arial; background: rgba(0, 0, 0, 0.7); padding: 10px; }
   </style>
 </head>
 <body>
   <div id="info">マイクを許可してスペースキーを押して開始</div>
   <script>
+    // 重要: このゲームはローカルサーバー（例: http-server, python -m http.server）で実行してください。
+    // file:// ではCORSエラーにより動作しない場合があります。
+    
     let scene, camera, renderer, shiba, obstacles = [];
     let audioContext, analyser, microphone, frequencyData;
     let gameState = 'start';
     let clock = new THREE.Clock();
+    let isSpacePressed = false;
 
-    function init() {
-      // シーンとカメラ
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-      camera.position.set(0, 5, 10);
-      renderer = new THREE.WebGLRenderer();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      document.body.appendChild(renderer.domElement);
+    // キー入力リスナー
+    document.addEventListener('keydown', (event) => {
+      if (event.code === 'Space') isSpacePressed = true;
+    });
+    document.addEventListener('keyup', (event) => {
+      if (event.code === 'Space') isSpacePressed = false;
+    });
 
-      // 柴犬
-      shiba = new Shiba();
-      scene.add(shiba.group);
+    async function init() {
+      console.log('ゲーム初期化開始...');
+      try {
+        // シーンとカメラ
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 5, 10);
+        renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
 
-      // 障害物：細い壁、低い壁、三角コーン
-      obstacles.push(new Obstacle(5, 0, -10, 'narrow')); // 細い壁
-      obstacles.push(new Obstacle(-5, 0, -20, 'low'));   // 低い壁
-      obstacles.push(new Obstacle(0, 0, -15, 'cone'));   // 三角コーン
+        // 柴犬
+        shiba = new Shiba();
+        scene.add(shiba.group);
 
-      // ライト
-      const light = new THREE.DirectionalLight(0xffffff, 0.8);
-      light.position.set(10, 10, 10);
-      scene.add(light);
-      scene.add(new THREE.AmbientLight(0x404040));
+        // 障害物
+        obstacles.push(new Obstacle(5, 0, -10, 'narrow')); // 細い壁
+        obstacles.push(new Obstacle(-5, 0, -20, 'low'));   // 低い壁
+        obstacles.push(new Obstacle(0, 0, -15, 'cone'));   // 三角コーン
 
-      // 地面
-      const groundGeo = new THREE.PlaneGeometry(100, 100);
-      const groundMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
-      const ground = new THREE.Mesh(groundGeo, groundMat);
-      ground.rotation.x = -Math.PI / 2;
-      scene.add(ground);
+        // ライト
+        const light = new THREE.DirectionalLight(0xffffff, 0.8);
+        light.position.set(10, 10, 10);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
 
-      initAudio();
-      animate();
+        // 地面
+        const groundGeo = new THREE.PlaneGeometry(100, 100);
+        const groundMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        scene.add(ground);
+
+        // 音声初期化を待つ
+        await initAudio();
+        console.log('ゲーム初期化完了');
+        animate();
+      } catch (err) {
+        console.error('初期化エラー:', err);
+        alert('ゲームの初期化に失敗しました。コンソールを確認してください。');
+      }
     }
 
     async function initAudio() {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      analyser = audioContext.createAnalyser();
-      analyser.fftSize = 2048;
+      console.log('音声初期化開始...');
       try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         microphone = audioContext.createMediaStreamSource(stream);
         microphone.connect(analyser);
         frequencyData = new Uint8Array(analyser.frequencyBinCount);
+        console.log('音声初期化成功');
       } catch (err) {
-        console.error('マイクのアクセスに失敗しました:', err);
-        alert('マイクのアクセスを許可してください。');
+        console.error('音声初期化エラー:', err);
+        alert('マイクのアクセスを許可してください。エラー詳細: ' + err.message);
       }
     }
 
     function getDominantFrequency() {
-      if (!analyser) return 0;
+      if (!analyser) {
+        console.warn('Analyserが未初期化です');
+        return 0;
+      }
       analyser.getByteFrequencyData(frequencyData);
       let maxAmp = 0, maxIndex = 0;
       for (let i = 0; i < frequencyData.length; i++) {
@@ -78,8 +105,10 @@
           maxIndex = i;
         }
       }
-      let sampleRate = audioContext.sampleRate;
-      return maxIndex * sampleRate / analyser.fftSize;
+      let sampleRate = audioContext ? audioContext.sampleRate : 44100;
+      const freq = maxIndex * sampleRate / analyser.fftSize;
+      console.log('検出された周波数:', freq);
+      return freq;
     }
 
     class Shiba {
@@ -113,11 +142,9 @@
       }
 
       update() {
-        // 自動移動（z軸方向に一定速度）
+        // 自動移動
         this.group.position.addScaledVector(this.velocity, clock.getDelta());
-        // x軸の範囲制限（左右の移動はなし）
         this.group.position.x = Math.max(-10, Math.min(10, this.group.position.x));
-        // z軸は負の方向に進むが、範囲制限はなし（障害物でゲームオーバー）
       }
 
       getBounds() {
@@ -177,17 +204,13 @@
       }
     }
 
-    function keyIsDown(keyCode) {
-      return (keyIsPressed && keyCode === parseInt(key));
-    }
-
     function animate() {
       requestAnimationFrame(animate);
       const info = document.getElementById('info');
 
       if (gameState === 'start') {
         info.textContent = 'マイクを許可してスペースキーを押して開始';
-        if (keyIsPressed && key === ' ') {
+        if (isSpacePressed) {
           gameState = 'playing';
           info.textContent = '';
         }
@@ -197,7 +220,7 @@
 
       if (gameState === 'gameover') {
         info.textContent = 'ゲームオーバー！スペースキーでリスタート';
-        if (keyIsPressed && key === ' ') {
+        if (isSpacePressed) {
           scene.remove(shiba.group);
           shiba = new Shiba();
           scene.add(shiba.group);
@@ -209,10 +232,14 @@
       }
 
       // 音声解析
-      let freq = getDominantFrequency();
-      if (freq > 500) shiba.setShape('narrow');
-      else if (freq < 200 && freq > 0) shiba.setShape('low');
-      else shiba.setShape('normal');
+      try {
+        let freq = getDominantFrequency();
+        if (freq > 500) shiba.setShape('narrow');
+        else if (freq < 200 && freq > 0) shiba.setShape('low');
+        else shiba.setShape('normal');
+      } catch (err) {
+        console.error('音声解析エラー:', err);
+      }
 
       // 柴犬の更新
       shiba.update();
@@ -220,17 +247,21 @@
       camera.lookAt(shiba.group.position);
 
       // 衝突判定
-      const shibaBounds = shiba.getBounds();
-      for (let obs of obstacles) {
-        const obsBounds = obs.getBounds();
-        const collide = shibaBounds.min.x < obsBounds.max.x && shibaBounds.max.x > obsBounds.min.x &&
-                        shibaBounds.min.y < obsBounds.max.y && shibaBounds.max.y > obsBounds.min.y &&
-                        shibaBounds.min.z < obsBounds.max.z && shibaBounds.max.z > obsBounds.min.z;
-        if (collide && ((obs.type === 'narrow' && shiba.shape !== 'narrow') ||
-                        (obs.type === 'low' && shiba.shape !== 'low') ||
-                        (obs.type === 'cone'))) {
-          gameState = 'gameover';
+      try {
+        const shibaBounds = shiba.getBounds();
+        for (let obs of obstacles) {
+          const obsBounds = obs.getBounds();
+          const collide = shibaBounds.min.x < obsBounds.max.x && shibaBounds.max.x > obsBounds.min.x &&
+                          shibaBounds.min.y < obsBounds.max.y && shibaBounds.max.y > obsBounds.min.y &&
+                          shibaBounds.min.z < obsBounds.max.z && shibaBounds.max.z > obsBounds.min.z;
+          if (collide && ((obs.type === 'narrow' && shiba.shape !== 'narrow') ||
+                          (obs.type === 'low' && shiba.shape !== 'low') ||
+                          (obs.type === 'cone'))) {
+            gameState = 'gameover';
+          }
         }
+      } catch (err) {
+        console.error('衝突判定エラー:', err);
       }
 
       renderer.render(scene, camera);
@@ -242,6 +273,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
+    // 初期化実行
     init();
   </script>
 </body>
