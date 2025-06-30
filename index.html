@@ -77,17 +77,25 @@
         ground.rotation.x = -Math.PI / 2;
         scene.add(ground);
 
-        // スタートボタン
-        const startButton = document.getElementById('startButton');
-        startButton.addEventListener('click', () => {
-          console.log('スタートボタンがクリックされました');
-          gameState = 'playing';
-          document.getElementById('ui').innerHTML = '';
-        });
-
         // 音声初期化
         await initAudio();
         console.log('ゲーム初期化完了');
+
+        // ボタンイベントリスナー
+        window.onload = () => {
+          const startButton = document.getElementById('startButton');
+          if (startButton) {
+            startButton.addEventListener('click', () => {
+              console.log('スタートボタンがクリックされました');
+              gameState = 'playing';
+              document.getElementById('ui').style.display = 'none';
+              console.log('gameStateをplayingに変更');
+            });
+          } else {
+            console.error('スタートボタンが見つかりません');
+          }
+        };
+
         animate();
       } catch (err) {
         console.error('初期化エラー:', err);
@@ -229,21 +237,28 @@
       const ui = document.getElementById('ui');
 
       if (gameState === 'ready') {
+        // 初期状態でもシーンをレンダリング
+        camera.position.set(shiba.group.position.x, shiba.group.position.y + 5, shiba.group.position.z + 10);
+        camera.lookAt(shiba.group.position);
         renderer.render(scene, camera);
         return;
       }
 
       if (gameState === 'gameover') {
+        ui.style.display = 'block';
         ui.innerHTML = '<div id="info">ゲームオーバー！</div><button id="restartButton">リスタート</button>';
         const restartButton = document.getElementById('restartButton');
-        restartButton.addEventListener('click', () => {
-          console.log('リスタートボタンがクリックされました');
-          scene.remove(shiba.group);
-          shiba = new Shiba();
-          scene.add(shiba.group);
-          gameState = 'playing';
-          ui.innerHTML = '';
-        });
+        if (restartButton) {
+          restartButton.addEventListener('click', () => {
+            console.log('リスタートボタンがクリックされました');
+            scene.remove(shiba.group);
+            shiba = new Shiba();
+            scene.add(shiba.group);
+            gameState = 'playing';
+            ui.style.display = 'none';
+            console.log('gameStateをplayingに変更');
+          });
+        }
         renderer.render(scene, camera);
         return;
       }
@@ -275,6 +290,7 @@
                           (obs.type === 'low' && shiba.shape !== 'low') ||
                           (obs.type === 'cone'))) {
             gameState = 'gameover';
+            console.log('ゲームオーバー: 衝突検出');
           }
         }
       } catch (err) {
