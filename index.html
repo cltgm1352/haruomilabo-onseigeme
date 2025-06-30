@@ -2,27 +2,57 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Voice-Controlled MOB Game</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <title>3D Voice-Controlled Shiba Inu Game</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+    #info { position: absolute; top: 10px; left: 10px; color: white; font-family: Arial; }
+  </style>
 </head>
 <body>
+  <div id="info">マイクを許可してスペースキーを押して開始</div>
   <script>
-    let mob;
-    let obstacles = [];
-    let audioContext;
-    let analyser;
-    let microphone;
-    let frequencyData;
+    let scene, camera, renderer, shiba, obstacles = [];
+    let audioContext, analyser, microphone, frequencyData;
     let gameState = 'start';
-    
-    function setup() {
-      createCanvas(800, 600);
-      mob = new Mob(width / 2, height / 2);
-      obstacles.push(new Obstacle(300, 100, 'narrow')); // 細い道
-      obstacles.push(new Obstacle(500, 400, 'low'));   // 低い道
+    let clock = new THREE.Clock();
+
+    function init() {
+      // シーンとカメラ
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 5, 10);
+      renderer = new THREE.WebGLRenderer();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      // 柴犬
+      shiba = new Shiba();
+      scene.add(shiba.group);
+
+      // 障害物：細い壁、低い壁、三角コーン
+      obstacles.push(new Obstacle(5, 0, -10, 'narrow')); // 細い壁
+      obstacles.push(new Obstacle(-5, 0, -20, 'low'));   // 低い壁
+      obstacles.push(new Obstacle(0, 0, -15, 'cone'));   // 三角コーン
+
+      // ライト
+      const light = new THREE.DirectionalLight(0xffffff, 0.8);
+      light.position.set(10, 10, 10);
+      scene.add(light);
+      scene.add(new THREE.AmbientLight(0x404040));
+
+      // 地面
+      const groundGeo = new THREE.PlaneGeometry(100, 100);
+      const groundMat = new THREE.MeshBasicMaterial({ color: 0x888888 });
+      const ground = new THREE.Mesh(groundGeo, groundMat);
+      ground.rotation.x = -Math.PI / 2;
+      scene.add(ground);
+
       initAudio();
+      animate();
     }
-    
+
     async function initAudio() {
       audioContext = new (window.AudioContext || window.webkitAudioContext)();
       analyser = audioContext.createAnalyser();
@@ -37,139 +67,182 @@
         alert('マイクのアクセスを許可してください。');
       }
     }
-    
-    function draw() {
-      background(220);
-      
-      if (gameState === 'start') {
-        textAlign(CENTER);
-        textSize(32);
-        text('マイクを許可してスペースキーを押して開始', width / 2, height / 2);
-        if (keyIsPressed && key === ' ') {
-          gameState = 'playing';
-        }
-        return;
-      }
-      
-      if (gameState === 'gameover') {
-        textAlign(CENTER);
-        textSize(32);
-        text('ゲームオーバー！スペースキーでリスタート', width / 2, height / 2);
-        if (keyIsPressed && key === ' ') {
-          mob = new Mob(width / 2, height / 2);
-          gameState = 'playing';
-        }
-        return;
-      }
-      
-      // 音声解析
-      if (analyser) {
-        analyser.getByteFrequencyData(frequencyData);
-        let maxFreq = getDominantFrequency();
-        if (maxFreq > 500) {
-          mob.setShape('narrow'); // 高音で細く
-        } else if (maxFreq < 200 && maxFreq > 0) {
-          mob.setShape('low');    // 低音で低く
-        } else {
-          mob.setShape('normal'); // 通常
-        }
-      }
-      
-      // プレイヤーの移動
-      mob.update();
-      mob.show();
-      
-      // 障害物の描画と衝突判定
-      for (let obs of obstacles) {
-        obs.show();
-        if (mob.collidesWith(obs)) {
-          gameState = 'gameover';
-        }
-      }
-    }
-    
+
     function getDominantFrequency() {
-      let maxAmp = 0;
-      let maxIndex = 0;
+      if (!analyser) return 0;
+      analyser.getByteFrequencyData(frequencyData);
+      let maxAmp = 0, maxIndex = 0;
       for (let i = 0; i < frequencyData.length; i++) {
         if (frequencyData[i] > maxAmp) {
           maxAmp = frequencyData[i];
           maxIndex = i;
         }
       }
-      // 周波数の計算（サンプルレートを基に）
       let sampleRate = audioContext.sampleRate;
-      let frequency = maxIndex * sampleRate / analyser.fftSize;
-      return frequency;
+      return maxIndex * sampleRate / analyser.fftSize;
     }
-    
-    class Mob {
-      constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.width = 40;
-        this.height = 40;
-        this.speed = 5;
+
+    class Shiba {
+      constructor() {
+        this.group = new THREE.Group();
+        // 胴体（茶色）
+        const bodyGeo = new THREE.BoxGeometry(1, 1, 2);
+        const bodyMat = new THREE.MeshBasicMaterial({ color: 0x8b4513 });
+        this.body = new THREE.Mesh(bodyGeo, bodyMat);
+        this.group.add(this.body);
+        // 頭（白）
+        const headGeo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+        const headMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        this.head = new THREE.Mesh(headGeo, headMat);
+        this.head.position.set(0, 0.5, 1.2);
+        this.group.add(this.head);
+        this.group.position.set(0, 0.5, 0);
+        this.velocity = new THREE.Vector3(0, 0, -5); // z軸方向に自動移動
         this.shape = 'normal';
       }
-      
+
       setShape(shape) {
         this.shape = shape;
         if (shape === 'narrow') {
-          this.width = 20;
-          this.height = 60;
+          this.group.scale.set(0.5, 1, 1); // 細く
         } else if (shape === 'low') {
-          this.width = 60;
-          this.height = 20;
+          this.group.scale.set(1, 0.5, 1); // 低く
         } else {
-          this.width = 40;
-          this.height = 40;
+          this.group.scale.set(1, 1, 1); // 通常
         }
       }
-      
+
       update() {
-        if (keyIsDown(LEFT_ARROW)) this.x -= this.speed;
-        if (keyIsDown(RIGHT_ARROW)) this.x += this.speed;
-        if (keyIsDown(UP_ARROW)) this.y -= this.speed;
-        if (keyIsDown(DOWN_ARROW)) this.y += this.speed;
-        this.x = constrain(this.x, 0, width - this.width);
-        this.y = constrain(this.y, 0, height - this.height);
+        // 自動移動（z軸方向に一定速度）
+        this.group.position.addScaledVector(this.velocity, clock.getDelta());
+        // x軸の範囲制限（左右の移動はなし）
+        this.group.position.x = Math.max(-10, Math.min(10, this.group.position.x));
+        // z軸は負の方向に進むが、範囲制限はなし（障害物でゲームオーバー）
       }
-      
-      show() {
-        fill(0, 255, 0);
-        rect(this.x, this.y, this.width, this.height);
-      }
-      
-      collidesWith(obstacle) {
-        if (obstacle.type === 'narrow') {
-          return this.x + this.width > obstacle.x && this.x < obstacle.x + 20 &&
-                 this.y + this.height > obstacle.y && this.y < obstacle.y + 100 &&
-                 this.shape !== 'narrow';
-        } else {
-          return this.x + this.width > obstacle.x && this.x < obstacle.x + 100 &&
-                 this.y + this.height > obstacle.y && this.y < obstacle.y + 20 &&
-                 this.shape !== 'low';
-        }
+
+      getBounds() {
+        const scale = this.group.scale;
+        return {
+          min: new THREE.Vector3(
+            this.group.position.x - 0.5 * scale.x,
+            this.group.position.y - 0.5 * scale.y,
+            this.group.position.z - 1 * scale.z
+          ),
+          max: new THREE.Vector3(
+            this.group.position.x + 0.5 * scale.x,
+            this.group.position.y + 0.5 * scale.y,
+            this.group.position.z + 1 * scale.z
+          )
+        };
       }
     }
-    
+
     class Obstacle {
-      constructor(x, y, type) {
-        this.x = x;
-        this.y = y;
+      constructor(x, y, z, type) {
         this.type = type;
-      }
-      
-      show() {
-        fill(255, 0, 0);
-        if (this.type === 'narrow') {
-          rect(this.x, this.y, 20, 100); // 細い道
+        let geo, mat;
+        if (type === 'narrow') {
+          geo = new THREE.BoxGeometry(0.5, 3, 1); // 細い壁
+          mat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+        } else if (type === 'low') {
+          geo = new THREE.BoxGeometry(3, 0.5, 1); // 低い壁
+          mat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
         } else {
-          rect(this.x, this.y, 100, 20); // 低い道
+          geo = new THREE.ConeGeometry(0.5, 1, 32); // 三角コーン
+          mat = new THREE.MeshBasicMaterial({ color: 0xffa500 });
+        }
+        this.mesh = new THREE.Mesh(geo, mat);
+        this.mesh.position.set(x, y + (type === 'cone' ? 0.5 : type === 'narrow' ? 1.5 : 0.25), z);
+        scene.add(this.mesh);
+      }
+
+      getBounds() {
+        const pos = this.mesh.position;
+        if (this.type === 'narrow') {
+          return {
+            min: new THREE.Vector3(pos.x - 0.25, pos.y - 1.5, pos.z - 0.5),
+            max: new THREE.Vector3(pos.x + 0.25, pos.y + 1.5, pos.z + 0.5)
+          };
+        } else if (this.type === 'low') {
+          return {
+            min: new THREE.Vector3(pos.x - 1.5, pos.y - 0.25, pos.z - 0.5),
+            max: new THREE.Vector3(pos.x + 1.5, pos.y + 0.25, pos.z + 0.5)
+          };
+        } else {
+          return {
+            min: new THREE.Vector3(pos.x - 0.5, pos.y - 0.5, pos.z - 0.5),
+            max: new THREE.Vector3(pos.x + 0.5, pos.y + 0.5, pos.z + 0.5)
+          };
         }
       }
     }
+
+    function keyIsDown(keyCode) {
+      return (keyIsPressed && keyCode === parseInt(key));
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const info = document.getElementById('info');
+
+      if (gameState === 'start') {
+        info.textContent = 'マイクを許可してスペースキーを押して開始';
+        if (keyIsPressed && key === ' ') {
+          gameState = 'playing';
+          info.textContent = '';
+        }
+        renderer.render(scene, camera);
+        return;
+      }
+
+      if (gameState === 'gameover') {
+        info.textContent = 'ゲームオーバー！スペースキーでリスタート';
+        if (keyIsPressed && key === ' ') {
+          scene.remove(shiba.group);
+          shiba = new Shiba();
+          scene.add(shiba.group);
+          gameState = 'playing';
+          info.textContent = '';
+        }
+        renderer.render(scene, camera);
+        return;
+      }
+
+      // 音声解析
+      let freq = getDominantFrequency();
+      if (freq > 500) shiba.setShape('narrow');
+      else if (freq < 200 && freq > 0) shiba.setShape('low');
+      else shiba.setShape('normal');
+
+      // 柴犬の更新
+      shiba.update();
+      camera.position.set(shiba.group.position.x, shiba.group.position.y + 5, shiba.group.position.z + 10);
+      camera.lookAt(shiba.group.position);
+
+      // 衝突判定
+      const shibaBounds = shiba.getBounds();
+      for (let obs of obstacles) {
+        const obsBounds = obs.getBounds();
+        const collide = shibaBounds.min.x < obsBounds.max.x && shibaBounds.max.x > obsBounds.min.x &&
+                        shibaBounds.min.y < obsBounds.max.y && shibaBounds.max.y > obsBounds.min.y &&
+                        shibaBounds.min.z < obsBounds.max.z && shibaBounds.max.z > obsBounds.min.z;
+        if (collide && ((obs.type === 'narrow' && shiba.shape !== 'narrow') ||
+                        (obs.type === 'low' && shiba.shape !== 'low') ||
+                        (obs.type === 'cone'))) {
+          gameState = 'gameover';
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    init();
   </script>
 </body>
 </html>
